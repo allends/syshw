@@ -8,11 +8,15 @@ void printadd(void* ptr){
 
 int main(int argc, char** argv){
   myinit(0);
-  char* test = alloc(1);
-  strcpy(test, "hello there");
-  printadd(test);
+  char* test = alloc(10);
   dump_heap();
-  char* another = alloc(60);
+
+  char* another = alloc(3);
   dump_heap();
+
+  char* another2 = alloc(3);
+  dump_heap();
+
+  mycleanup();
   return 0; 
 }

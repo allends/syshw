@@ -1,8 +1,8 @@
+CFLAGS = -g -Wall -Wvla -fsanitize=address -lm
 
-CFLAGS = -g -Wall -Wvla -fsanitize=address
 
 driver : driver.c	mymalloc.o
-	gcc $(CFLAGS) -o driver driver.c 
+	gcc $(CFLAGS) -o driver driver.c -lm
 
 %.o: %.c
 	gcc -c -o $@ $<
