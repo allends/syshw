@@ -3,18 +3,29 @@
 #include "mymalloc.h"
 
 void printadd(void* ptr){
-  printf("the address is %d\n", ptr);
+  printf("the address is %p\n", (int) ptr);
 }
 
 int main(int argc, char** argv){
   myinit(0);
-  char* test = alloc(10);
   dump_heap();
 
-  char* another = alloc(3);
+  char* test = alloc(5);
+  strcpy(test, "hell");
+
+  char* second = alloc(9);
+  strcpy(second, "longer");
   dump_heap();
 
-  char* another2 = alloc(3);
+  myfree(test);
+
+  // try to reallocate that first one
+
+  char* another = alloc(4);
+  strcpy(another, "dff");
+
+  printadd(another);
+
   dump_heap();
 
   mycleanup();
