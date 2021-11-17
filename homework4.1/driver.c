@@ -7,7 +7,7 @@ void printadd(void* ptr){
 }
 
 int main(int argc, char** argv){
-  myinit(0);
+  myinit(2);
   dump_heap();
 
   char* test = alloc(5);

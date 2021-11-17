@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <string.h>
 #include <stdbool.h>
 #include <math.h>
 
@@ -15,40 +16,46 @@ void myfree(void* ptr);
 void* myrealloc(void* ptr, size_t size);
 void dump_heap();
 void splitseg(metadata_t* ptr, size_t size);
+void* firstfit(size_t size);
+void* nextfit(size_t size);
+void* bestfit(size_t size);
 
 #define INIT_MALLOC 1000000
 
-int alogrithm = 0;
+int algorithm;
 
 metadata_t* heap;
+metadata_t* placeholder;
 int headersize = sizeof(metadata_t);
 
 void myinit(int allocAlg){
-  alogrithm = allocAlg;
+
+  algorithm = allocAlg;
   heap = (metadata_t *) calloc( 1, INIT_MALLOC);
   heap->size = INIT_MALLOC - headersize;
   heap->taken = false;
-  heap->next = NULL; 
+  heap->next = NULL;
+
+  if(allocAlg == 1){
+    printf("made the placeholder\n");
+    placeholder = heap;
+  }
+
   printf("tag is %d bytes\n", (int) headersize);
 }
 
 void* alloc(size_t size){
 
   // TODO: have a switch that call the correct algo for the algorithm value
-
-  metadata_t* curr = heap;
-
-  // loop to find a fit that is free
-  while(curr){
-    if(curr->size >= size && curr->taken == false){
-      // we found a match, so return it
-      // split it if neccesarry
-      splitseg(curr, size);
-      curr->taken = true;
-      return curr + headersize;
-    }
-    curr = curr->next;
+  switch (algorithm){
+    case 0:
+      return firstfit(size);
+    case 1:
+      return nextfit(size);
+    case 2:
+      return bestfit(size);
   }
+  
 }
 
 void myfree(void* ptr){
@@ -160,6 +167,63 @@ void coalesce(){
     printf("coalescing\n");
     return;
 }
+
+void* firstfit(size_t size){
+  metadata_t* curr = heap;
+
+  // loop to find a fit that is free
+  while(curr){
+    if(curr->size >= size && curr->taken == false){
+      // we found a match, so return it
+      // split it if neccesarry
+      splitseg(curr, size);
+      curr->taken = true;
+      return curr + headersize;
+    }
+    curr = curr->next;
+  }
+  return NULL;
+}
+
+void* nextfit(size_t size){
+  metadata_t* curr = placeholder;
+
+  // loop to find a fit that is free
+  while(curr){
+    if(curr->size >= size && curr->taken == false){
+      // we found a match, so return it
+      // split it if neccesarry
+      splitseg(curr, size);
+      curr->taken = true;
+      placeholder = curr;
+      return curr + headersize;
+    }
+    curr = curr->next;
+  }
+  printf("return null\n");
+  return NULL;
+}
+
+void* bestfit(size_t size){
+  metadata_t* curr = heap;
+  metadata_t* best = NULL;
+  int  bestleftover = INFINITY;
+
+  // loop to find a fit that is free
+  while(curr){
+    if(curr->size >= size && curr->taken == false){
+      if(bestleftover > curr->size - size){
+        best = curr;
+        bestleftover = curr->size - size;
+      }
+    }
+    curr = curr->next;
+  }
+  best->taken = true;
+  splitseg(best, size);
+  return best + headersize;
+}
+
 
 void dump_heap(){
   metadata_t* curr = heap;
