@@ -11,23 +11,27 @@ int main(int argc, char** argv){
   dump_heap();
 
   char* test = alloc(5);
-  strcpy(test, "hell");
+  strcpy(test, "test");
 
   char* second = alloc(9);
-  strcpy(second, "longer");
+  strcpy(second, "second");
+  dump_heap();
+
+  alloc(7);
+
+  test = myrealloc(test, 9);
+  dump_heap();
+  char* takefirst = alloc(7);
+  strcpy(takefirst, "tkf");
   dump_heap();
 
   myfree(test);
-
-  // try to reallocate that first one
-
-  char* another = alloc(4);
-  strcpy(another, "dff");
-
-  printadd(another);
-
   dump_heap();
 
+  // we should expect the first two blocks to be combined now!
+  myfree(second);
+
+  dump_heap();
   mycleanup();
   return 0; 
 }
