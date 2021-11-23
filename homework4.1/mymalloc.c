@@ -64,7 +64,7 @@ void myfree(void* ptr){
   while(curr){
     if(curr + headersize == ptr){
       if(curr->taken == false){
-        printf("error: already freed\n");
+        printf("error: double free\n");
       }
       curr->taken = false;
       memset(curr + headersize, 0, curr->size);
@@ -110,6 +110,7 @@ void* myrealloc(void* ptr, size_t size){
     }
     curr = curr->next;
   }
+  return NULL;
 }
 
 void splitseg(metadata_t* ptr, size_t size){
@@ -164,7 +165,6 @@ void coalesce(){
 
       curr = curr->next;
     }
-    printf("coalescing\n");
     return;
 }
 
@@ -236,6 +236,7 @@ void dump_heap(){
 
 void mycleanup(){
   memset(heap, 0, INIT_MALLOC);
+  dump_heap();
   free(heap);
 }
 
