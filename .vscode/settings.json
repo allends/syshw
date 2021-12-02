@@ -1,6 +1,12 @@
 {
   "C_Cpp.errorSquiggles": "Disabled",
   "files.associations": {
-    "math.h": "c"
-  }
+    "math.h": "c",
+    "unistd.h": "c",
+    "stdlib.h": "c",
+    "in.h": "c",
+    "string.h": "c",
+    "cstdlib": "c"
+  },
+  "editor.formatOnSave": true
 }
