@@ -10,6 +10,12 @@
 // keep data on what the tile is like and where the players are
 // each player should have a score and stuff like that
 
+typedef struct
+{
+  int player_id;
+  int player_clientfd;
+} player_t;
+
 int open_serverfd()
 {
   int serverfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -24,6 +30,10 @@ int open_serverfd()
   listen(serverfd, 5);
 
   return serverfd;
+}
+
+void *handle_client(player_t player)
+{
 }
 
 int main(int argc, char const *argv[])
