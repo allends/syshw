@@ -1,2 +1,4 @@
+
+
 %: %.c
-	gcc -o $@ -g -fsanitize=address $<
+	gcc -o $@ -g -pthread -fsanitize=address $<

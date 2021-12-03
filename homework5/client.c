@@ -1,6 +1,9 @@
 #include "common.h"
 
-TILETYPE grid[GRIDSIZE][GRIDSIZE];
+TILETYPE game_grid[GRIDSIZE][GRIDSIZE];
+#define BUFFER_SZ 32
+#define GAME_BUFFER_SZ sizeof(grid)
+#define POSITION_BUFFER_SZ 2
 
 Position playerPosition;
 int score;
@@ -8,6 +11,7 @@ int level;
 int numTomatoes;
 
 bool shouldExit = false;
+bool send_data = false;
 
 TTF_Font *font;
 
@@ -15,35 +19,6 @@ TTF_Font *font;
 double rand01()
 {
     return (double)rand() / (double)RAND_MAX;
-}
-
-void initGrid()
-{
-    for (int i = 0; i < GRIDSIZE; i++)
-    {
-        for (int j = 0; j < GRIDSIZE; j++)
-        {
-            double r = rand01();
-            if (r < 0.1)
-            {
-                grid[i][j] = TILE_TOMATO;
-                numTomatoes++;
-            }
-            else
-                grid[i][j] = TILE_GRASS;
-        }
-    }
-
-    // force player's position to be grass
-    if (grid[playerPosition.x][playerPosition.y] == TILE_TOMATO)
-    {
-        grid[playerPosition.x][playerPosition.y] = TILE_GRASS;
-        numTomatoes--;
-    }
-
-    // ensure grid isn't empty
-    while (numTomatoes == 0)
-        initGrid();
 }
 
 void initSDL()
@@ -71,12 +46,10 @@ void initSDL()
 void moveTo(int x, int y)
 {
     // Prevent falling off the grid
-    if (x < 0 || x >= GRIDSIZE || y < 0 || y >= GRIDSIZE)
-        return;
 
     // Sanity check: player can only move to 4 adjacent squares
-    if (!(abs(playerPosition.x - x) == 1 && abs(playerPosition.y - y) == 0) &&
-        !(abs(playerPosition.x - x) == 0 && abs(playerPosition.y - y) == 1))
+    if (!(abs(x) == 1 && abs(y) == 0) &&
+        !(abs(x) == 0 && abs(y) == 1))
     {
         fprintf(stderr, "Invalid move attempted from (%d, %d) to (%d, %d)\n", playerPosition.x, playerPosition.y, x, y);
         return;
@@ -85,17 +58,7 @@ void moveTo(int x, int y)
     playerPosition.x = x;
     playerPosition.y = y;
 
-    if (grid[x][y] == TILE_TOMATO)
-    {
-        grid[x][y] = TILE_GRASS;
-        score++;
-        numTomatoes--;
-        if (numTomatoes == 0)
-        {
-            level++;
-            initGrid();
-        }
-    }
+    printf("posx: %d posy: %d \n", playerPosition.x, playerPosition.y);
 }
 
 void handleKeyDown(SDL_KeyboardEvent *event)
@@ -105,19 +68,22 @@ void handleKeyDown(SDL_KeyboardEvent *event)
         return;
 
     if (event->keysym.scancode == SDL_SCANCODE_Q || event->keysym.scancode == SDL_SCANCODE_ESCAPE)
+    {
         shouldExit = true;
+        printf("exiting from the key handler \n");
+    }
 
     if (event->keysym.scancode == SDL_SCANCODE_UP || event->keysym.scancode == SDL_SCANCODE_W)
-        moveTo(playerPosition.x, playerPosition.y - 1);
+        moveTo(0, -1);
 
     if (event->keysym.scancode == SDL_SCANCODE_DOWN || event->keysym.scancode == SDL_SCANCODE_S)
-        moveTo(playerPosition.x, playerPosition.y + 1);
+        moveTo(0, 1);
 
     if (event->keysym.scancode == SDL_SCANCODE_LEFT || event->keysym.scancode == SDL_SCANCODE_A)
-        moveTo(playerPosition.x - 1, playerPosition.y);
+        moveTo(-1, 0);
 
     if (event->keysym.scancode == SDL_SCANCODE_RIGHT || event->keysym.scancode == SDL_SCANCODE_D)
-        moveTo(playerPosition.x + 1, playerPosition.y);
+        moveTo(1, 0);
 }
 
 void processInputs()
@@ -129,6 +95,7 @@ void processInputs()
         switch (event.type)
         {
         case SDL_QUIT:
+            printf("exiting from quit statement \n");
             shouldExit = true;
             break;
 
@@ -151,16 +118,26 @@ void drawGrid(SDL_Renderer *renderer, SDL_Texture *grassTexture, SDL_Texture *to
         {
             dest.x = 64 * i;
             dest.y = 64 * j + HEADER_HEIGHT;
-            SDL_Texture *texture = (grid[i][j] == TILE_GRASS) ? grassTexture : tomatoTexture;
+            SDL_Texture *texture;
+            switch (game_grid[i][j])
+            {
+            case TILE_GRASS:
+                texture = grassTexture;
+                break;
+            case TILE_TOMATO:
+                texture = tomatoTexture;
+                break;
+            case TILE_PLAYER:
+                texture = grassTexture;
+                SDL_QueryTexture(texture, NULL, NULL, &dest.w, &dest.h);
+                SDL_RenderCopy(renderer, texture, NULL, &dest);
+                texture = playerTexture;
+                break;
+            }
             SDL_QueryTexture(texture, NULL, NULL, &dest.w, &dest.h);
             SDL_RenderCopy(renderer, texture, NULL, &dest);
         }
     }
-
-    dest.x = 64 * playerPosition.x;
-    dest.y = 64 * playerPosition.y + HEADER_HEIGHT;
-    SDL_QueryTexture(playerTexture, NULL, NULL, &dest.w, &dest.h);
-    SDL_RenderCopy(renderer, playerTexture, NULL, &dest);
 }
 
 void drawUI(SDL_Renderer *renderer)
@@ -198,44 +175,122 @@ void drawUI(SDL_Renderer *renderer)
     SDL_DestroyTexture(levelTexture);
 }
 
-// put this in a thread so that it can send data to the game server and then upate the info that it gets from the server
-void *network(void *args)
+void deserialize_game_data(char inputstream[GRIDSIZE * GRIDSIZE])
 {
-    int sock = 0, valread;
-    struct sockaddr_in serv_addr;
-    char *hello = "Hello from client";
-    char buffer[1024] = {0};
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+    int index = 0;
+    for (int i = 0; i < GRIDSIZE; i++)
     {
-        printf("\n Socket creation error \n");
-        exit(1);
+        for (int j = 0; j < GRIDSIZE; j++)
+        {
+            switch (inputstream[index])
+            {
+            case 'G':
+                game_grid[i][j] = TILE_GRASS;
+                break;
+            case 'T':
+                game_grid[i][j] = TILE_TOMATO;
+                break;
+            case 'P':
+                game_grid[i][j] = TILE_PLAYER;
+                break;
+            default:
+                break;
+            }
+            index++;
+        }
     }
+}
 
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(PORT);
+void *receive_server_data(void *args)
+{
+    int buffer_length = GRIDSIZE * GRIDSIZE;
+    char received_serialized_game_data[buffer_length];
+    bzero(received_serialized_game_data, buffer_length);
 
-    // Convert IPv4 and IPv6 addresses from text to binary form
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0)
+    int *serverfd = (int *)args;
+
+    while (!shouldExit)
     {
-        printf("\nInvalid address/ Address not supported \n");
-        exit(1);
+        int receive_result = recv(*serverfd, received_serialized_game_data, buffer_length, 0);
+        if (receive_result > 0)
+        {
+            printf("Game Data: %s \n", received_serialized_game_data);
+            deserialize_game_data(received_serialized_game_data);
+        }
+        else
+        {
+            break;
+        }
+        bzero(received_serialized_game_data, buffer_length);
     }
+    return NULL;
+}
 
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+void serialize_position_data(char *buffer, int delta_x, int delta_y)
+{
+    // N for no movement
+    // U for moving up or right
+    // D for moving down or left
+    // this allows us to only use a 2 char 'packet'
+    switch (delta_x)
     {
-        printf("\nConnection Failed \n");
-        exit(1);
+    case 0:
+        buffer[0] = 'N';
+        break;
+    case 1:
+        buffer[0] = 'U';
+        break;
+    case -1:
+        printf("encountered -1\n");
+        buffer[1] = 'D';
+        break;
+    default:
+        break;
     }
-    while (1)
+    switch (delta_y)
     {
-        send(sock, hello, strlen(hello), 0);
-        printf("Hello message sent\n");
-        valread = read(sock, buffer, 1024);
-        printf("%s\n", buffer);
+    case 0:
+        buffer[1] = 'N';
+        break;
+    case 1:
+        buffer[1] = 'U';
+        break;
+    case -1:
+        buffer[1] = 'D';
+        break;
+    default:
+        break;
+    }
+}
+
+void *send_server_data(void *args)
+{
+    char *message = (char *)malloc(POSITION_BUFFER_SZ);
+    int *clientfd = (int *)args;
+    char *test_message = "gg";
+
+    while (!shouldExit)
+    {
+        serialize_position_data(message, playerPosition.x, playerPosition.y);
+        printf("data: %s\n", message);
+        send(*clientfd, test_message, strlen(test_message), 0);
         sleep(1);
-        printf("looping\n");
     }
-    printf("somehow left the loop\n");
+    free(message);
+}
+
+int open_clientfd()
+{
+    int clientfd;
+    clientfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    struct sockaddr_in server_address;
+    server_address.sin_family = AF_INET;
+    server_address.sin_port = htons(PORT);
+    server_address.sin_addr.s_addr = INADDR_ANY;
+
+    int result = connect(clientfd, (struct sockaddr *)&server_address, sizeof(server_address));
+    return clientfd;
 }
 
 int main(int argc, char *argv[])
@@ -252,9 +307,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Error loading font: %s\n", TTF_GetError());
         exit(EXIT_FAILURE);
     }
-
-    playerPosition.x = playerPosition.y = GRIDSIZE / 2;
-    initGrid();
 
     SDL_Window *window = SDL_CreateWindow("Client", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WINDOW_WIDTH, WINDOW_HEIGHT, 0);
 
@@ -277,13 +329,16 @@ int main(int argc, char *argv[])
     SDL_Texture *playerTexture = IMG_LoadTexture(renderer, "resources/player.png");
 
     // networking stuff
-    pthread_t network_procs;
-    pthread_create(&network_procs, NULL, network, NULL);
+    int clientfd = open_clientfd();
 
-    // end networking stuff
+    pthread_t send_server_data_thread;
+    pthread_t receive_server_data_thread;
+    pthread_create(&send_server_data_thread, NULL, send_server_data, &clientfd);
+    pthread_create(&receive_server_data_thread, NULL, receive_server_data, &clientfd);
 
-    // main game loop
-    // i should probably move this to its own thread
+    // end networking setup
+
+    // main game loop (maybe put into its own thread)
     while (!shouldExit)
     {
         SDL_SetRenderDrawColor(renderer, 0, 105, 6, 255);
@@ -300,6 +355,9 @@ int main(int argc, char *argv[])
     }
 
     // clean up everything
+    pthread_join(receive_server_data_thread, NULL);
+    pthread_join(send_server_data_thread, NULL);
+
     SDL_DestroyTexture(grassTexture);
     SDL_DestroyTexture(tomatoTexture);
     SDL_DestroyTexture(playerTexture);

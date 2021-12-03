@@ -36,5 +36,6 @@ typedef struct
 typedef enum
 {
     TILE_GRASS,
-    TILE_TOMATO
+    TILE_TOMATO,
+    TILE_PLAYER
 } TILETYPE;
