@@ -1,11 +1,15 @@
 #include "common.h"
 #include <sys/types.h>
 #include <signal.h>
+#include <time.h>
+#include <semaphore.h>
+#include <errno.h>
 
 #define MAXIMUMPLAYERS 4
 TILETYPE main_game_grid[GRIDSIZE][GRIDSIZE];
 #define BUFFER_SZ sizeof(main_game_grid)
 #define POSITION_BUFFER 3
+sem_t update_players_queue;
 
 Position playerPosition;
 int score;
@@ -37,8 +41,31 @@ double rand01()
   return (double)rand() / (double)RAND_MAX;
 }
 
+int msleep(long msec)
+{
+  struct timespec ts;
+  int res;
+
+  if (msec < 0)
+  {
+    errno = EINVAL;
+    return -1;
+  }
+
+  ts.tv_sec = msec / 1000;
+  ts.tv_nsec = (msec % 1000) * 1000000;
+
+  do
+  {
+    res = nanosleep(&ts, &ts);
+  } while (res && errno == EINTR);
+
+  return res;
+}
+
 void initGrid()
 {
+  // numTomatoes = 0;
   for (int i = 0; i < GRIDSIZE; i++)
   {
     for (int j = 0; j < GRIDSIZE; j++)
@@ -74,11 +101,22 @@ void initGrid()
 
   // ensure grid isn't empty
   while (numTomatoes == 0)
+  {
+    printf("forced to reinitialize \n");
     initGrid();
+  }
 }
 
 void serialize_game_data(char *destination, TILETYPE input[GRIDSIZE][GRIDSIZE])
 {
+  for (int k = 0; k < MAXIMUMPLAYERS; k++)
+  {
+    if (players[k])
+    {
+      Position temp = players[k]->player_position;
+      main_game_grid[temp.x][temp.y] = TILE_PLAYER;
+    }
+  }
   int index = 0;
   for (int i = 0; i < GRIDSIZE; i++)
   {
@@ -119,6 +157,36 @@ int open_serverfd()
   return serverfd;
 }
 
+int char_to_move(char input)
+{
+  switch (input)
+  {
+  case 'N':
+    return 0;
+    break;
+  case 'U':
+    return 1;
+    break;
+  case 'D':
+    return -1;
+    break;
+  default:
+    return 0;
+    break;
+  }
+}
+
+void move_client(player_t *player, char data[2])
+{
+  int old_x = player->player_position.x;
+  int old_y = player->player_position.y;
+  player->player_position.x += char_to_move(data[0]);
+  player->player_position.y += char_to_move(data[1]);
+  main_game_grid[old_x][old_y] = TILE_GRASS;
+  sem_post(&update_players_queue);
+  return;
+}
+
 void *handle_client(void *args)
 {
   player_t *player = (player_t *)args;
@@ -129,10 +197,14 @@ void *handle_client(void *args)
   {
     int receive_result = recv(player->player_clientfd, data_received, POSITION_BUFFER, 0);
     printf("got data: %s with receive_result: %d\n", data_received, receive_result);
-    if (receive_result == 0)
+    if (receive_result <= 0)
     {
       printf("client disconnected \n");
       break;
+    }
+    else
+    {
+      move_client(player, data_received);
     }
     bzero(data_received, POSITION_BUFFER);
   }
@@ -159,6 +231,7 @@ void *send_game_data(void *args)
   char *serialized_game_data = (char *)malloc(GRIDSIZE * GRIDSIZE);
   while (1)
   {
+    sem_wait(&update_players_queue);
     serialize_game_data(serialized_game_data, main_game_grid);
     for (int player_index = 0; player_index < MAXIMUMPLAYERS; player_index++)
     {
@@ -168,7 +241,6 @@ void *send_game_data(void *args)
         send(players[player_index]->player_clientfd, serialized_game_data, strlen(serialized_game_data), 0);
       }
     }
-    sleep(1);
   }
   free(serialized_game_data);
   return NULL;
@@ -189,7 +261,7 @@ void *client_acceptor(void *args)
     clientfd = accept(serverfd, (struct sockaddr *)&client_address, &client_address_length);
     printf("a client had connected %d\n", clientfd);
 
-    if (players_connected + 1 >= MAXIMUMPLAYERS)
+    if (players_connected >= MAXIMUMPLAYERS)
     {
       printf("Not accepting new players\n");
       close(clientfd);
@@ -212,6 +284,7 @@ void *client_acceptor(void *args)
 
       // TODO: array for the players connected
       pthread_create(&player_thread, NULL, handle_client, (void *)new_player);
+      sem_post(&update_players_queue);
     }
   }
 
@@ -225,16 +298,13 @@ int main(int argc, char const *argv[])
   // lets see if we can make this its own thread to accept new players
   pthread_t client_acceptor_thread;
   pthread_t send_game_data_thread;
+  sem_init(&update_players_queue, 1, 1);
   pthread_create(&client_acceptor_thread, NULL, client_acceptor, NULL);
   pthread_create(&send_game_data_thread, NULL, send_game_data, NULL);
   // another thread to check if the players leave?
 
   // constantly reinitialize the grid so that the clients can see that
-  while (1)
-  {
-    initGrid();
-    sleep(1);
-  }
+  initGrid();
 
   pthread_join(send_game_data_thread, NULL);
   pthread_join(client_acceptor_thread, NULL);

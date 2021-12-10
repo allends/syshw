@@ -9,9 +9,10 @@ Position playerPosition;
 int score;
 int level;
 int numTomatoes;
+int mainfd; // for sending data from function
+pthread_mutex_t send_data;
 
 bool shouldExit = false;
-bool send_data = false;
 
 TTF_Font *font;
 
@@ -43,9 +44,44 @@ void initSDL()
     }
 }
 
+char delta_to_char(int delta)
+{
+    switch (delta)
+    {
+    case 0:
+        return 'N';
+        break;
+    case 1:
+        return 'U';
+        break;
+    case -1:
+        return 'D';
+        break;
+    default:
+        return 'N';
+        break;
+    }
+}
+
+void send_delta_server(int delta_x, int delta_y)
+{
+    char data[2];
+    data[0] = delta_to_char(delta_x);
+    data[1] = delta_to_char(delta_y);
+
+    send(mainfd, data, POSITION_BUFFER_SZ, 0);
+}
+
 void moveTo(int x, int y)
 {
     // Prevent falling off the grid
+
+    if (x == 0 && y == 0)
+    {
+        playerPosition.x = 0;
+        playerPosition.y = 0;
+        return;
+    }
 
     // Sanity check: player can only move to 4 adjacent squares
     if (!(abs(x) == 1 && abs(y) == 0) &&
@@ -55,14 +91,18 @@ void moveTo(int x, int y)
         return;
     }
 
+    // TODO create a function
+    // send_delta(int x, int y)
+    // that send the data right to the server, no flags, no mutexes
+
+    send_delta_server(x, y);
     playerPosition.x = x;
     playerPosition.y = y;
-
-    printf("posx: %d posy: %d \n", playerPosition.x, playerPosition.y);
 }
 
 void handleKeyDown(SDL_KeyboardEvent *event)
 {
+
     // ignore repeat events if key is held down
     if (event->repeat)
         return;
@@ -211,6 +251,7 @@ void *receive_server_data(void *args)
 
     while (!shouldExit)
     {
+        // The client is getting hung up here and cant close
         int receive_result = recv(*serverfd, received_serialized_game_data, buffer_length, 0);
         if (receive_result > 0)
         {
@@ -219,70 +260,21 @@ void *receive_server_data(void *args)
         }
         else
         {
+            // this means that the server is no longer connected:
+            shouldExit = true;
             break;
         }
         bzero(received_serialized_game_data, buffer_length);
     }
+    printf("closing the server receiver\n");
     return NULL;
-}
-
-void serialize_position_data(char *buffer, int delta_x, int delta_y)
-{
-    // N for no movement
-    // U for moving up or right
-    // D for moving down or left
-    // this allows us to only use a 2 char 'packet'
-    switch (delta_x)
-    {
-    case 0:
-        buffer[0] = 'N';
-        break;
-    case 1:
-        buffer[0] = 'U';
-        break;
-    case -1:
-        printf("encountered -1\n");
-        buffer[1] = 'D';
-        break;
-    default:
-        break;
-    }
-    switch (delta_y)
-    {
-    case 0:
-        buffer[1] = 'N';
-        break;
-    case 1:
-        buffer[1] = 'U';
-        break;
-    case -1:
-        buffer[1] = 'D';
-        break;
-    default:
-        break;
-    }
-}
-
-void *send_server_data(void *args)
-{
-    char *message = (char *)malloc(POSITION_BUFFER_SZ);
-    int *clientfd = (int *)args;
-    char *test_message = "gg";
-
-    while (!shouldExit)
-    {
-        serialize_position_data(message, playerPosition.x, playerPosition.y);
-        printf("data: %s\n", message);
-        send(*clientfd, test_message, strlen(test_message), 0);
-        sleep(1);
-    }
-    free(message);
 }
 
 int open_clientfd()
 {
     int clientfd;
     clientfd = socket(AF_INET, SOCK_STREAM, 0);
+    mainfd = clientfd;
 
     struct sockaddr_in server_address;
     server_address.sin_family = AF_INET;
@@ -331,9 +323,7 @@ int main(int argc, char *argv[])
     // networking stuff
     int clientfd = open_clientfd();
 
-    pthread_t send_server_data_thread;
     pthread_t receive_server_data_thread;
-    pthread_create(&send_server_data_thread, NULL, send_server_data, &clientfd);
     pthread_create(&receive_server_data_thread, NULL, receive_server_data, &clientfd);
 
     // end networking setup
@@ -356,7 +346,6 @@ int main(int argc, char *argv[])
 
     // clean up everything
     pthread_join(receive_server_data_thread, NULL);
-    pthread_join(send_server_data_thread, NULL);
 
     SDL_DestroyTexture(grassTexture);
     SDL_DestroyTexture(tomatoTexture);
