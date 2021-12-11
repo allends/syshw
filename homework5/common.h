@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include <pthread.h>
+#include <signal.h>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
@@ -26,6 +27,7 @@
 
 // Number of cells vertically/horizontally in the grid
 #define GRIDSIZE 10
+#define GRIDSIZE_LIN GRIDSIZE*GRIDSIZE
 
 typedef struct
 {

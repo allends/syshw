@@ -1,13 +1,12 @@
 #include "common.h"
 #include <sys/types.h>
-#include <signal.h>
 #include <time.h>
 #include <semaphore.h>
 #include <errno.h>
 
 #define MAXIMUMPLAYERS 4
 TILETYPE main_game_grid[GRIDSIZE][GRIDSIZE];
-#define BUFFER_SZ sizeof(main_game_grid)
+#define GAME_DATA_BUFFER_SZ GRIDSIZE_LIN + 5
 #define POSITION_BUFFER 3
 sem_t update_players_queue;
 
@@ -27,6 +26,7 @@ typedef struct
 {
   int player_id;
   int player_clientfd;
+  int score;
   pthread_t player_thread_id;
   Position player_position;
   bool connected;
@@ -107,6 +107,22 @@ void initGrid()
   }
 }
 
+// This will add the players score and the level number
+void add_player_data(char* destination, player_t* player){
+  int score = player->score;
+  char score_serialized[5];
+  // we are going to have a number 0-100
+  // we can just turn it into a string - WOW
+  sprintf(score_serialized, "%4d", score);
+  printf("%s\n", score_serialized);
+
+  // make the end of the buffer have the players score
+  for(int i=GRIDSIZE_LIN; i<GAME_DATA_BUFFER_SZ;i++){
+    destination[i] = score_serialized[i-GRIDSIZE_LIN];
+  }
+  printf("successfully serialized the score\n");
+}
+
 void serialize_game_data(char *destination, TILETYPE input[GRIDSIZE][GRIDSIZE])
 {
   for (int k = 0; k < MAXIMUMPLAYERS; k++)
@@ -139,6 +155,7 @@ void serialize_game_data(char *destination, TILETYPE input[GRIDSIZE][GRIDSIZE])
       index++;
     }
   }
+  printf("serialized the game data \n");
 }
 
 int open_serverfd()
@@ -150,9 +167,15 @@ int open_serverfd()
   server_address.sin_port = htons(PORT);
   server_address.sin_addr.s_addr = INADDR_ANY;
 
-  bind(serverfd, (struct sockaddr *)&server_address, sizeof(server_address));
+  int bind_result = bind(serverfd, (struct sockaddr *)&server_address, sizeof(server_address));
+  if(bind_result < 0){
+    printf("binding error.\n");
+  }
 
-  listen(serverfd, 5);
+  int listen_result = listen(serverfd, 5);
+  if(listen_result < 0){
+    printf("listen error.\n");
+  }
 
   return serverfd;
 }
@@ -178,10 +201,20 @@ int char_to_move(char input)
 
 void move_client(player_t *player, char data[2])
 {
+  int new_x = player->player_position.x + char_to_move(data[0]);
+  int new_y = player->player_position.y + char_to_move(data[1]);
+  if(main_game_grid[new_x][new_y] == TILE_TOMATO){
+    player->score += 1;
+    printf("player %d got a point! \n", player->player_id);
+    numTomatoes--;
+    if(numTomatoes == 0){
+      initGrid();
+    }
+  }
   int old_x = player->player_position.x;
   int old_y = player->player_position.y;
-  player->player_position.x += char_to_move(data[0]);
-  player->player_position.y += char_to_move(data[1]);
+  player->player_position.x = new_x;
+  player->player_position.y = new_y;
   main_game_grid[old_x][old_y] = TILE_GRASS;
   sem_post(&update_players_queue);
   return;
@@ -228,7 +261,7 @@ void *handle_client(void *args)
 
 void *send_game_data(void *args)
 {
-  char *serialized_game_data = (char *)malloc(GRIDSIZE * GRIDSIZE);
+  char *serialized_game_data = (char *)malloc(GAME_DATA_BUFFER_SZ);
   while (1)
   {
     sem_wait(&update_players_queue);
@@ -238,7 +271,11 @@ void *send_game_data(void *args)
       // check to see if the clients file descriptor is valid
       if (players[player_index])
       {
-        send(players[player_index]->player_clientfd, serialized_game_data, strlen(serialized_game_data), 0);
+        add_player_data(serialized_game_data, players[player_index]);
+        int send_result = send(players[player_index]->player_clientfd, serialized_game_data, strlen(serialized_game_data), 0);
+        if(send_result == -1){
+          printf("send error.\n");
+        }
       }
     }
   }
@@ -258,6 +295,7 @@ void *client_acceptor(void *args)
 
   while (1)
   {
+    printf("ready to accept a new client.\n");
     clientfd = accept(serverfd, (struct sockaddr *)&client_address, &client_address_length);
     printf("a client had connected %d\n", clientfd);
 
@@ -276,6 +314,7 @@ void *client_acceptor(void *args)
       new_player->player_id = players_connected;
       new_player->player_thread_id = player_thread;
       new_player->connected = true;
+      new_player->score = 0;
       Position new_pos;
       new_pos.x = new_pos.y = GRIDSIZE / 2;
       new_player->player_position = new_pos;

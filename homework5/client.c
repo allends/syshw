@@ -4,6 +4,7 @@ TILETYPE game_grid[GRIDSIZE][GRIDSIZE];
 #define BUFFER_SZ 32
 #define GAME_BUFFER_SZ sizeof(grid)
 #define POSITION_BUFFER_SZ 2
+#define GAME_DATA_BUFFER_SZ GRIDSIZE_LIN + 5
 
 Position playerPosition;
 int score;
@@ -215,7 +216,7 @@ void drawUI(SDL_Renderer *renderer)
     SDL_DestroyTexture(levelTexture);
 }
 
-void deserialize_game_data(char inputstream[GRIDSIZE * GRIDSIZE])
+void deserialize_game_data(char inputstream[GRIDSIZE_LIN])
 {
     int index = 0;
     for (int i = 0; i < GRIDSIZE; i++)
@@ -239,20 +240,23 @@ void deserialize_game_data(char inputstream[GRIDSIZE * GRIDSIZE])
             index++;
         }
     }
+    char score_str[5];
+    for(int i=GRIDSIZE_LIN; i<GAME_DATA_BUFFER_SZ;i++){
+        score_str[i-GRIDSIZE_LIN] = inputstream[i];
+    }
+    sscanf(score_str, "%4d", &score);
 }
 
 void *receive_server_data(void *args)
 {
-    int buffer_length = GRIDSIZE * GRIDSIZE;
-    char received_serialized_game_data[buffer_length];
-    bzero(received_serialized_game_data, buffer_length);
+    char received_serialized_game_data[GAME_DATA_BUFFER_SZ];
+    bzero(received_serialized_game_data, GAME_DATA_BUFFER_SZ);
 
     int *serverfd = (int *)args;
 
     while (!shouldExit)
     {
-        // The client is getting hung up here and cant close
-        int receive_result = recv(*serverfd, received_serialized_game_data, buffer_length, 0);
+        int receive_result = recv(*serverfd, received_serialized_game_data, GAME_DATA_BUFFER_SZ, 0);
         if (receive_result > 0)
         {
             printf("Game Data: %s \n", received_serialized_game_data);
@@ -260,11 +264,10 @@ void *receive_server_data(void *args)
         }
         else
         {
-            // this means that the server is no longer connected:
             shouldExit = true;
             break;
         }
-        bzero(received_serialized_game_data, buffer_length);
+        bzero(received_serialized_game_data, GAME_DATA_BUFFER_SZ);
     }
     printf("closing the server receiver\n");
     return NULL;
@@ -282,13 +285,16 @@ int open_clientfd()
     server_address.sin_addr.s_addr = INADDR_ANY;
 
     int result = connect(clientfd, (struct sockaddr *)&server_address, sizeof(server_address));
+    if( result < 0){
+        printf("connect error.\n");
+    }
     return clientfd;
 }
 
 int main(int argc, char *argv[])
 {
     srand(time(NULL));
-
+    signal(SIGPIPE, SIG_IGN);
     level = 1;
 
     initSDL();
