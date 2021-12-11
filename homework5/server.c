@@ -6,11 +6,9 @@
 
 #define MAXIMUMPLAYERS 4
 TILETYPE main_game_grid[GRIDSIZE][GRIDSIZE];
-#define GAME_DATA_BUFFER_SZ GRIDSIZE_LIN + 5
 #define POSITION_BUFFER 3
 sem_t update_players_queue;
 
-Position playerPosition;
 int score;
 int level;
 int numTomatoes;
@@ -110,19 +108,18 @@ void initGrid()
 // This will add the players score and the level number
 void add_player_data(char* destination, player_t* player){
   int score = player->score;
-  char score_serialized[5];
+  char score_level_serialized[SCORE_SZ+LEVEL_SZ];
   // we are going to have a number 0-100
   // we can just turn it into a string - WOW
-  sprintf(score_serialized, "%4d", score);
-  printf("%s\n", score_serialized);
-
+  sprintf(score_level_serialized, "%4d %1d", score, level);
   // make the end of the buffer have the players score
   for(int i=GRIDSIZE_LIN; i<GAME_DATA_BUFFER_SZ;i++){
-    destination[i] = score_serialized[i-GRIDSIZE_LIN];
+    destination[i] = score_level_serialized[i-GRIDSIZE_LIN];
   }
-  printf("successfully serialized the score\n");
+  printf("ss: %s\n", destination);
 }
 
+// creates a string of game tiles that we can send to the client
 void serialize_game_data(char *destination, TILETYPE input[GRIDSIZE][GRIDSIZE])
 {
   for (int k = 0; k < MAXIMUMPLAYERS; k++)
@@ -203,12 +200,17 @@ void move_client(player_t *player, char data[2])
 {
   int new_x = player->player_position.x + char_to_move(data[0]);
   int new_y = player->player_position.y + char_to_move(data[1]);
+  if(main_game_grid[new_x][new_y] == TILE_PLAYER){
+    sem_post(&update_players_queue);
+    return;
+  }
   if(main_game_grid[new_x][new_y] == TILE_TOMATO){
     player->score += 1;
     printf("player %d got a point! \n", player->player_id);
     numTomatoes--;
     if(numTomatoes == 0){
       initGrid();
+      level++;
     }
   }
   int old_x = player->player_position.x;
@@ -252,7 +254,8 @@ void *handle_client(void *args)
       break;
     }
   }
-
+  //update the tile so new players wont see the disconnected avatar
+  main_game_grid[player->player_position.x][player->player_position.y] = TILE_GRASS;
   pthread_detach(player->player_thread_id);
   printf("closing the clients thread\n");
   players_connected--;
@@ -283,6 +286,29 @@ void *send_game_data(void *args)
   return NULL;
 }
 
+void create_player(int clientfd, pthread_t player_thread){
+    player_t *new_player = (player_t *)malloc(sizeof(player_t));
+    new_player->player_clientfd = clientfd;
+    new_player->player_id = players_connected;
+    new_player->player_thread_id = player_thread;
+    new_player->connected = true;
+    new_player->score = 0;
+    Position new_pos;
+    new_pos.x = (int) (rand01() * 10.0);
+    new_pos.y = (int) (rand01() * 10.0);
+    while(main_game_grid[new_pos.y][new_pos.y] == TILE_PLAYER){
+      new_pos.x = (int) (rand01() * 10.0);
+      new_pos.y = (int) (rand01() * 10.0);
+    }
+    new_player->player_position = new_pos;
+    players[players_connected] = new_player;
+    players_connected++;
+
+    // TODO: array for the players connected
+    pthread_create(&player_thread, NULL, handle_client, (void *)new_player);
+    sem_post(&update_players_queue);
+}
+
 void *client_acceptor(void *args)
 {
   int clientfd;
@@ -306,24 +332,7 @@ void *client_acceptor(void *args)
     }
     else
     {
-      // increment the amount of players that we have
-      // we will also need to update the sprite sheet
-      // make a player struct for each other the connected players with their positions on there
-      player_t *new_player = (player_t *)malloc(sizeof(player_t));
-      new_player->player_clientfd = clientfd;
-      new_player->player_id = players_connected;
-      new_player->player_thread_id = player_thread;
-      new_player->connected = true;
-      new_player->score = 0;
-      Position new_pos;
-      new_pos.x = new_pos.y = GRIDSIZE / 2;
-      new_player->player_position = new_pos;
-      players[players_connected] = new_player;
-      players_connected++;
-
-      // TODO: array for the players connected
-      pthread_create(&player_thread, NULL, handle_client, (void *)new_player);
-      sem_post(&update_players_queue);
+      create_player(clientfd, player_thread);
     }
   }
 

@@ -4,7 +4,7 @@ TILETYPE game_grid[GRIDSIZE][GRIDSIZE];
 #define BUFFER_SZ 32
 #define GAME_BUFFER_SZ sizeof(grid)
 #define POSITION_BUFFER_SZ 2
-#define GAME_DATA_BUFFER_SZ GRIDSIZE_LIN + 5
+
 
 Position playerPosition;
 int score;
@@ -240,11 +240,12 @@ void deserialize_game_data(char inputstream[GRIDSIZE_LIN])
             index++;
         }
     }
-    char score_str[5];
+    char score_level_str[SCORE_SZ+LEVEL_SZ];
     for(int i=GRIDSIZE_LIN; i<GAME_DATA_BUFFER_SZ;i++){
-        score_str[i-GRIDSIZE_LIN] = inputstream[i];
+        score_level_str[i-GRIDSIZE_LIN] = inputstream[i];
     }
-    sscanf(score_str, "%4d", &score);
+    sscanf(score_level_str, "%4d %1d", &score, &level);
+    printf("level is %d\n", level);
 }
 
 void *receive_server_data(void *args)
@@ -295,7 +296,9 @@ int main(int argc, char *argv[])
 {
     srand(time(NULL));
     signal(SIGPIPE, SIG_IGN);
-    level = 1;
+
+    // initialize the level?
+    // level = 1;
 
     initSDL();
 
@@ -351,6 +354,8 @@ int main(int argc, char *argv[])
     }
 
     // clean up everything
+    // this will update the client so that it can exit
+    send_delta_server(0, 0);
     pthread_join(receive_server_data_thread, NULL);
 
     SDL_DestroyTexture(grassTexture);

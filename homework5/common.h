@@ -28,6 +28,10 @@
 // Number of cells vertically/horizontally in the grid
 #define GRIDSIZE 10
 #define GRIDSIZE_LIN GRIDSIZE*GRIDSIZE
+// 5 for the score and 2 for the level
+#define SCORE_SZ 5
+#define LEVEL_SZ 2
+#define GAME_DATA_BUFFER_SZ GRIDSIZE_LIN + SCORE_SZ + LEVEL_SZ
 
 typedef struct
 {
