@@ -8,12 +8,15 @@ TILETYPE game_grid[GRIDSIZE][GRIDSIZE];
 
 Position playerPosition;
 int score;
+int display_score;
 int level;
 int numTomatoes;
 int mainfd; // for sending data from function
 pthread_mutex_t send_data;
 
 bool shouldExit = false;
+bool gameover = false;
+bool playerWon = false;
 
 TTF_Font *font;
 
@@ -186,8 +189,10 @@ void drawUI(SDL_Renderer *renderer)
     // largest score/level supported is 2147483647
     char scoreStr[18];
     char levelStr[18];
+    char resultStr[18];
     sprintf(scoreStr, "Score: %d", score);
     sprintf(levelStr, "Level: %d", level);
+    sprintf(resultStr, "%s", gameover ? ( playerWon ? "Winner!" : "Loser! L L L") : "");
 
     SDL_Color white = {255, 255, 255};
     SDL_Surface *scoreSurface = TTF_RenderText_Solid(font, scoreStr, white);
@@ -195,6 +200,9 @@ void drawUI(SDL_Renderer *renderer)
 
     SDL_Surface *levelSurface = TTF_RenderText_Solid(font, levelStr, white);
     SDL_Texture *levelTexture = SDL_CreateTextureFromSurface(renderer, levelSurface);
+
+    SDL_Surface *resultSurface = TTF_RenderText_Solid(font, resultStr, white);
+    SDL_Texture *resultTexture = SDL_CreateTextureFromSurface(renderer, resultSurface);
 
     SDL_Rect scoreDest;
     TTF_SizeText(font, scoreStr, &scoreDest.w, &scoreDest.h);
@@ -206,14 +214,23 @@ void drawUI(SDL_Renderer *renderer)
     levelDest.x = GRID_DRAW_WIDTH - levelDest.w;
     levelDest.y = 0;
 
+    SDL_Rect resultDest;
+    TTF_SizeText(font, resultStr, &resultDest.w, &resultDest.h);
+    resultDest.x = GRID_DRAW_WIDTH / 2;
+    resultDest.y = GRID_DRAW_HEIGHT / 2;
+
     SDL_RenderCopy(renderer, scoreTexture, NULL, &scoreDest);
     SDL_RenderCopy(renderer, levelTexture, NULL, &levelDest);
+    SDL_RenderCopy(renderer, resultTexture, NULL, &resultDest);
 
     SDL_FreeSurface(scoreSurface);
     SDL_DestroyTexture(scoreTexture);
 
     SDL_FreeSurface(levelSurface);
     SDL_DestroyTexture(levelTexture);
+
+    SDL_FreeSurface(resultSurface);
+    SDL_DestroyTexture(resultTexture);
 }
 
 void deserialize_game_data(char inputstream[GRIDSIZE_LIN])
@@ -245,7 +262,16 @@ void deserialize_game_data(char inputstream[GRIDSIZE_LIN])
         score_level_str[i-GRIDSIZE_LIN] = inputstream[i];
     }
     sscanf(score_level_str, "%4d %1d", &score, &level);
+    if(score != WINCODE){
+        display_score = score;
+    }
     printf("level is %d\n", level);
+    if(level > MAXLEVELS){
+        gameover = true;
+        if(score == WINCODE){
+            playerWon = true;
+        }
+    }
 }
 
 void *receive_server_data(void *args)

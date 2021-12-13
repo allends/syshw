@@ -32,6 +32,8 @@
 #define SCORE_SZ 5
 #define LEVEL_SZ 2
 #define GAME_DATA_BUFFER_SZ GRIDSIZE_LIN + SCORE_SZ + LEVEL_SZ
+#define MAXLEVELS 1
+#define WINCODE 1337
 
 typedef struct
 {

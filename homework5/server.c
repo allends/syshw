@@ -105,9 +105,28 @@ void initGrid()
   }
 }
 
+// linear search to see if the current player has the highest score
+bool isHighestScore(player_t* player){
+  int score = player->score;
+  int id = player->player_id;
+  for(int i =0 ; i < MAXIMUMPLAYERS; i++ ){
+    if(players[i]){ // make sure that the current player is not null
+      if(score < players[i]->score && id != players[i]->player_id){
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 // This will add the players score and the level number
 void add_player_data(char* destination, player_t* player){
   int score = player->score;
+  if(level > MAXLEVELS){
+    if(isHighestScore(player)){
+      score = WINCODE;
+    }
+  }
   char score_level_serialized[SCORE_SZ+LEVEL_SZ];
   // we are going to have a number 0-100
   // we can just turn it into a string - WOW
@@ -247,7 +266,7 @@ void *handle_client(void *args)
   // free the memory that we allocated
   for (int index = 0; index < MAXIMUMPLAYERS; index++)
   {
-    if (players[index]->player_id == player->player_id)
+    if (players[index] && players[index]->player_id == player->player_id)
     {
       free(players[index]);
       players[index] = NULL;
@@ -259,6 +278,7 @@ void *handle_client(void *args)
   pthread_detach(player->player_thread_id);
   printf("closing the clients thread\n");
   players_connected--;
+  sem_post(&update_players_queue);
   return NULL;
 }
 
