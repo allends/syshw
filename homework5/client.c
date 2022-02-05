@@ -18,6 +18,7 @@ bool shouldExit = false;
 bool gameover = false;
 bool playerWon = false;
 
+// pointer for the font
 TTF_Font *font;
 
 // get a random value in the range [0, 1]
